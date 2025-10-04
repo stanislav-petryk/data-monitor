@@ -1,0 +1,29 @@
+# CMake build
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+Makefile
+cmake_install.cmake
+
+# Executables
+*.exe
+*.out
+*.app
+*.o
+*.obj
+
+# MacOS специфічні
+.DS_Store
+*.dylib
+
+# Windows специфічні
+*.pdb
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Лог-файли та тимчасові
+*.log
+*.tmp
+*.swp
