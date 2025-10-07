@@ -12,18 +12,17 @@ cmake_install.cmake
 *.o
 *.obj
 
-# MacOS специфічні
+# MacOS
 .DS_Store
 *.dylib
 
-# Windows специфічні
+# Windows
 *.pdb
 
 # VSCode
 .vscode/
 *.code-workspace
 
-# Лог-файли та тимчасові
 *.log
 *.tmp
 *.swp

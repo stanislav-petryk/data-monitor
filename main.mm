@@ -28,7 +28,8 @@ std::string getBatteryPercent() {
 
 std::string getBatteryMaxCapacity() {
   return execCommand(
-      "system_profiler SPPowerDataType | grep 'Maximum Capacity'");
+             "system_profiler SPPowerDataType | grep 'Maximum Capacity'")
+      .substr(28);
 }
 
 std::string getBatteryTemp() {
@@ -40,41 +41,64 @@ std::string getBatteryTemp() {
   return temp;
 }
 
+std::string getGPUUsage() {
+  std::string cpuUsage = execCommand("sudo /usr/local/bin/gpu_idle");
+  cpuUsage = std::to_string(std::ceil(100 - stod(cpuUsage.substr(0, 5))));
+  int dotPosition = cpuUsage.find('.');
+
+  return cpuUsage.substr(0, dotPosition) + "%";
+}
+
 int getCPUUsage() {
-  host_cpu_load_info_data_t cpuInfo;
-  mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
-  kern_return_t kr = host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
-                                     (host_info_t)&cpuInfo, &count);
+  natural_t cpuCount;
+  processor_info_array_t infoArray;
+  mach_msg_type_number_t infoCount;
+  static processor_info_array_t prevInfoArray = NULL;
+  static mach_msg_type_number_t prevInfoCount = 0;
+  static natural_t prevCPUCount = 0;
 
+  kern_return_t kr =
+      host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount,
+                          &infoArray, &infoCount);
   if (kr != KERN_SUCCESS)
-    return -1.0;
+    return -1;
 
-  static unsigned long long lastUser = 0, lastSystem = 0, lastIdle = 0,
-                            lastNice = 0;
+  float totalUsage = 0;
+  for (unsigned i = 0; i < cpuCount; i++) {
+    float user, system, idle, nice;
+    if (prevInfoArray) {
+      unsigned int index = CPU_STATE_MAX * i;
+      user = infoArray[index + CPU_STATE_USER] -
+             prevInfoArray[index + CPU_STATE_USER];
+      system = infoArray[index + CPU_STATE_SYSTEM] -
+               prevInfoArray[index + CPU_STATE_SYSTEM];
+      idle = infoArray[index + CPU_STATE_IDLE] -
+             prevInfoArray[index + CPU_STATE_IDLE];
+      nice = infoArray[index + CPU_STATE_NICE] -
+             prevInfoArray[index + CPU_STATE_NICE];
+    }
+    else {
+      unsigned int index = CPU_STATE_MAX * i;
+      user = infoArray[index + CPU_STATE_USER];
+      system = infoArray[index + CPU_STATE_SYSTEM];
+      idle = infoArray[index + CPU_STATE_IDLE];
+      nice = infoArray[index + CPU_STATE_NICE];
+    }
 
-  unsigned long long user = cpuInfo.cpu_ticks[CPU_STATE_USER];
-  unsigned long long system = cpuInfo.cpu_ticks[CPU_STATE_SYSTEM];
-  unsigned long long idle = cpuInfo.cpu_ticks[CPU_STATE_IDLE];
-  unsigned long long nice = cpuInfo.cpu_ticks[CPU_STATE_NICE];
+    float total = user + system + idle + nice;
+    totalUsage += (user + system + nice) / total * 100.0f;
+  }
 
-  unsigned long long userDiff = user - lastUser;
-  unsigned long long systemDiff = system - lastSystem;
-  unsigned long long idleDiff = idle - lastIdle;
-  unsigned long long niceDiff = nice - lastNice;
+  // очистка попередніх даних
+  if (prevInfoArray)
+    vm_deallocate(mach_task_self(), (vm_address_t)prevInfoArray,
+                  sizeof(integer_t) * prevInfoCount);
 
-  lastUser = user;
-  lastSystem = system;
-  lastIdle = idle;
-  lastNice = nice;
+  prevInfoArray = infoArray;
+  prevInfoCount = infoCount;
+  prevCPUCount = cpuCount;
 
-  unsigned long long totalTicks = userDiff + systemDiff + idleDiff + niceDiff;
-
-  if (totalTicks == 0)
-    return 0.0;
-
-  double cpuUsage =
-      (double)(userDiff + systemDiff + niceDiff) / (double)totalTicks * 100.0;
-  return static_cast<int>(cpuUsage);
+  return (int)(totalUsage / cpuCount);
 }
 
 @interface StatusApp : NSObject
@@ -123,7 +147,7 @@ int main(int argc, const char *argv[]) {
     NSRect screenF = [[NSScreen mainScreen] frame];
     CGFloat windowWidth = 100;
     CGFloat windowHeight = 120;
-    CGFloat offsetFromTop = 835;
+    CGFloat offsetFromTop = 820;
     CGFloat offsetFromLeft = 1345;
 
     NSRect frame = NSMakeRect(offsetFromLeft, NSMaxY(screenF) - windowHeight,
@@ -164,14 +188,32 @@ int main(int argc, const char *argv[]) {
     [manager setupStatusItem];
 
     std::thread([label]() {
+      int i = 0;
+      __block std::string gpuUsage;
+      std::string battery = getBatteryPercent();
+      std::string maxCap = getBatteryMaxCapacity();
+      std::string temp = getBatteryTemp();
+
       while (true) {
-        if (true) {
-        }
         std::stringstream ss;
-        ss << "Battery: " << getBatteryPercent() << std::endl;
-        ss << "MaxCap: " << getBatteryMaxCapacity().substr(28) << std::endl;
-        ss << "Temp: " << getBatteryTemp() << "°C\n";
-        ss << "CPU Load: " << getCPUUsage() << "%";
+        if (i % 3 == 0) {
+          dispatch_async(
+              dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                gpuUsage = getGPUUsage();
+              });
+        }
+        if (i == 15) {
+          battery = getBatteryPercent();
+          maxCap = getBatteryMaxCapacity();
+          temp = getBatteryTemp();
+          i = 0;
+        }
+        i++;
+        ss << "Battery: " << battery << std::endl;
+        ss << "MaxCap: " << maxCap << std::endl;
+        ss << "Temp: " << temp << "°C\n";
+        ss << "CPU Load: " << getCPUUsage() << "%" << std::endl;
+        ss << "GPU Load: " << gpuUsage;
 
         NSString *nsStr = [NSString stringWithUTF8String:ss.str().c_str()];
         dispatch_async(dispatch_get_main_queue(), ^{
