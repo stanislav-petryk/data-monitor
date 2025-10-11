@@ -3,8 +3,8 @@ project(DataMonitor LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(SOURCES main.mm)
-set(RESOURCE_FILES DataMonitorIcon.png DataMonitorIcon.icns)
+set(SOURCES src/main.mm)
+set(RESOURCE_FILES resources/DataMonitorIcon.png resources/DataMonitorIcon.icns)
 
 add_executable(DataMonitor MACOSX_BUNDLE ${SOURCES})
 
