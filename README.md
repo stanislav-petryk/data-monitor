@@ -1,5 +1,7 @@
 # Data monitor
 
+![data-monitor](https://github.com/user-attachments/assets/7ebf51b0-6d3c-4f6a-9114-91cd528e1d1e)
+
 I made it for myself to monitor important data.
 
 ## thats display -
