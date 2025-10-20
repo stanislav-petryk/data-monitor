@@ -1,8 +1,6 @@
 #include <Cocoa/Cocoa.h>
 #include <chrono>
 #include <cstdio>
-#include <cstdlib>
-#include <iostream>
 #include <mach/mach.h>
 #include <sstream>
 #include <string>

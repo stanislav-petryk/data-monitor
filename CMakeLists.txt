@@ -18,9 +18,10 @@ set_target_properties(DataMonitor PROPERTIES
 )
 
 foreach(resource ${RESOURCE_FILES})
+    get_filename_component(filename ${resource} NAME)
     add_custom_command(TARGET DataMonitor POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_SOURCE_DIR}/${resource}
-        $<TARGET_BUNDLE_DIR:DataMonitor>/Contents/Resources/${resource}
+        $<TARGET_BUNDLE_DIR:DataMonitor>/Contents/Resources/${filename}
     )
 endforeach()
