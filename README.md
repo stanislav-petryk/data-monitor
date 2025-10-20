@@ -4,7 +4,28 @@
 
 I made it for myself to monitor important data.
 
-## thats display -
+## Tech stack
+
+- Cocoa - display window
+- chrono - work with time
+- cstdio - input/output
+- mach - system info
+- sstream - string stream
+- string - string type
+- thread - updating info
+
+## How it works?
+
+- Program take system info using mach and terminal commands
+- It display to screen with Cocoa
+- It refresh data like that:
+  - CPU Load update every second
+  - Battery, Temp and MaxCap every 15 seconds - because it changed rarely
+  - GPU Load every 3 second - script that give GPU Load is slow so i make it like that
+
+> window work like overlay so you don't can click to it
+
+## thats display
 
 1. Current battery charge - Battery: 100%
 2. Max Capacity of you battery - MaxCap: 100%
@@ -12,67 +33,23 @@ I made it for myself to monitor important data.
 4. Percent CPU in use - CPU Load: 42%
 5. Percent GPU in use - GPU Load: 42%
 
+## setup GPU usage
+
 MacOS don't give access to gpu using terminal (except apple api but its not for regular peoples) and i don't want use other apis.
 
-So for display gpu usage you will follow this guide -
+So for display gpu usage you will follow this commands -
 
-1. Create bach script for get how much GPU idle in /usr/local/bin folder:
+1. Run - sudo tee /usr/local/bin/gpu_idle > /dev/null <<'EOF'
+   #!/bin/bash
+   /usr/bin/powermetrics --samplers gpu_power --show-usage-summary -n 1 2>/dev/null \
+    | /usr/bin/grep "GPU idle residency" | /usr/bin/head -n 1 | /usr/bin/awk '{print $4}'
+   EOF
 
-```bash
-sudo tee /usr/local/bin/gpu_idle > /dev/null <<'EOF'
-#!/bin/bash
-/usr/bin/powermetrics --samplers gpu_power --show-usage-summary -n 1 2>/dev/null \
-  | /usr/bin/grep "GPU idle residency" | /usr/bin/head -n 1 | /usr/bin/awk '{print $4}'
-EOF
-```
+2. Run - sudo chown root:wheel /usr/local/bin/gpu_idle
+   sudo chmod 755 /usr/local/bin/gpu_idle
 
-> This script runs powermetrics to get GPU idle residency and outputs only the percentage value.
+3. Run - sudo visudo -f /etc/sudoers.d/gpu_idle
 
-2. Make the script executable:
+4. Paste that with you username - yourUsername ALL=(root) NOPASSWD: /usr/local/bin/gpu_idle
 
-```bash
-sudo chown root:wheel /usr/local/bin/gpu_idle
-sudo chmod 755 /usr/local/bin/gpu_idle
-```
-
-3. check:
-
-type:
-
-```bash
-ls -l /usr/local/bin/gpu_idle
-```
-
-if give something like -rwxr-xr-x 1 root wheel 183 Oct 7 22:58 /usr/local/bin/gpu_idle - all good.
-
-4. Give access to use sudo in script without password:
-
-- type to terminal:
-
-```bash
-sudo visudo -f /etc/sudoers.d/gpu_idle
-```
-
-- then paste that command with you username:
-
-```bash
-yourUsername ALL=(root) NOPASSWD: /usr/local/bin/gpu_idle
-```
-
-- that press esc then type :wq and press Enter.
-
-5. Check:
-
-- type:
-
-```bash
-sudo -l
-```
-
-in response should be that string:
-
-```bash
-(root) NOPASSWD: /usr/local/bin/gpu_idle
-```
-
-## Congratulations! you can see your GPU load and all other data that provide
+5. Press esc, type :wq and press Enter
