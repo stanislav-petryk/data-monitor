@@ -136,8 +136,6 @@ int getCPUUsage() {
   [label setSelectable:NO];
   [label setDrawsBackground:NO];
   [content addSubview:label];
-
-  // Можеш додати тут інші поля / чекбокси / слайдери
 }
 
 @end
