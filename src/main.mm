@@ -100,38 +100,51 @@ int getCPUUsage() {
   return (int)(totalUsage / cpuCount);
 }
 
-CGEventRef myCGEventCallback(CGEventTapProxy proxy, CGEventType type,
-                             CGEventRef event, void *refcon) {
-  if (type != kCGEventKeyDown)
-    return event;
+@interface PreferencesWindowController : NSWindowController
+@end
 
-  CGKeyCode keyCode =
-      (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+@implementation PreferencesWindowController
 
-  if (keyCode == 53) { // ESC
-    BOOL *end = (BOOL *)refcon;
-    *end = YES;
-    return NULL;
-  }
-  if (keyCode == 123) {
-  }
-  if (keyCode == 124) {
-  }
-  if (keyCode == 125) {
-    // self.offsetFromBottom--;
-  }
-  if (keyCode == 126) {
-    // self.offsetFromBottom++;
-  }
+- (instancetype)init {
+  NSRect frame = NSMakeRect(0, 0, 420, 260);
 
-  return event;
+  NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:frame
+                styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                           NSWindowStyleMaskMiniaturizable)
+                  backing:NSBackingStoreBuffered
+                    defer:NO];
+
+  window.title = @"Preferences";
+  window.releasedWhenClosed = NO;
+
+  self = [super initWithWindow:window];
+  if (self) {
+    [self setupUI];
+  }
+  return self;
 }
+
+- (void)setupUI {
+  NSView *content = self.window.contentView;
+
+  NSTextField *label =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 200, 24)];
+  [label setStringValue:@"Preferences Window"];
+  [label setBezeled:NO];
+  [label setEditable:NO];
+  [label setSelectable:NO];
+  [label setDrawsBackground:NO];
+  [content addSubview:label];
+
+  // Можеш додати тут інші поля / чекбокси / слайдери
+}
+
+@end
 
 @interface StatusApp : NSObject
 @property(strong) NSStatusItem *statusItem;
-@property(assign) NSWindow *overlayWindow;
-@property(assign) CGFloat *offsetFromBottom;
-@property(assign) CGFloat *offsetFromRight;
+@property(strong) PreferencesWindowController *prefsWC;
 - (void)setupStatusItem;
 @end
 
@@ -160,12 +173,13 @@ CGEventRef myCGEventCallback(CGEventTapProxy proxy, CGEventType type,
   //                                            keyEquivalent:@""];
   // [menu insertItem:textItem atIndex:0];
 
-  NSMenuItem *moveOverlayItem =
-      [[NSMenuItem alloc] initWithTitle:@"Move overlay"
-                                 action:@selector(moveOverlay:)
-                          keyEquivalent:@""];
-  moveOverlayItem.target = self;
-  [menu addItem:moveOverlayItem];
+  NSMenuItem *preferences =
+      [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                 action:@selector(preferences:)
+                          keyEquivalent:@","];
+  preferences.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  preferences.target = self;
+  [menu addItem:preferences];
 
   quitItem.target = self;
   [menu addItem:quitItem];
@@ -177,130 +191,14 @@ CGEventRef myCGEventCallback(CGEventTapProxy proxy, CGEventType type,
   [NSApp terminate:nil];
 }
 
-- (void)moveOverlay:(id)sender {
-  NSWindow *window = self.overlayWindow;
-  if (!window)
-    return;
+- (void)preferences:(id)sender {
+  if (!self.prefsWC) {
+    self.prefsWC = [[PreferencesWindowController alloc] init];
+  }
 
-  [window setIgnoresMouseEvents:NO];
-
-  BOOL __block end = false;
-
-  CGEventMask mask = CGEventMaskBit(kCGEventKeyDown);
-  CFMachPortRef eventTap =
-      CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap,
-                       kCGEventTapOptionDefault, mask, myCGEventCallback, &end);
-
-  CFRunLoopSourceRef runLoopSource =
-      CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
-  CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource,
-                     kCFRunLoopCommonModes);
-  CGEventTapEnable(eventTap, true);
-
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-    while (!end) {
-      if ([NSEvent pressedMouseButtons] & 1) {
-        end = true;
-
-        NSPoint mousePos = [NSEvent mouseLocation];
-
-        NSScreen *screen = [NSScreen mainScreen];
-        NSRect screenFrame = [screen frame];
-
-        CGFloat windowWidth = window.frame.size.width;
-        CGFloat windowHeight = window.frame.size.height;
-
-        CGFloat offsetFromRight =
-            screenFrame.size.width - mousePos.x - windowWidth;
-        CGFloat offsetFromBottom = mousePos.y;
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-          NSPoint newOrigin = NSMakePoint(mousePos.x, offsetFromBottom);
-          [window setFrameOrigin:newOrigin];
-          [window setIgnoresMouseEvents:YES];
-        });
-      }
-
-      [NSThread sleepForTimeInterval:0.01];
-    }
-
-    // Кінець циклу — ігноруємо мишу
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [window setIgnoresMouseEvents:YES];
-    });
-
-    // Очищаємо EventTap
-    CGEventTapEnable(eventTap, false);
-    CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource,
-                          kCFRunLoopCommonModes);
-    CFRelease(runLoopSource);
-    CFRelease(eventTap);
-  });
-
-  // __block id monitor = [NSEvent
-  //     addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseUp |
-  //                                            NSEventMaskLeftMouseDown)
-  //                                   handler:^(NSEvent *event) {
-  //                                     if (end) {
-  //                                       [NSEvent removeMonitor:monitor];
-  //                                     }
-  //                                     if (!end &&
-  //                                         event.type ==
-  //                                         NSEventTypeLeftMouseUp |
-  //                                             event.type ==
-  //                                                 NSEventMaskLeftMouseDown) {
-  //                                       end = true;
-
-  //                                       NSPoint mousePos =
-  //                                           [NSEvent mouseLocation];
-
-  //                                       NSScreen *screen =
-  //                                           [NSScreen mainScreen];
-  //                                       NSRect screenFrame = [screen frame];
-
-  //                                       CGFloat windowWidth =
-  //                                           window.frame.size.width;
-  //                                       CGFloat windowHeight =
-  //                                           window.frame.size.height;
-
-  //                                       CGFloat offsetFromRight =
-  //                                           screenFrame.size.width -
-  //                                           mousePos.x - windowWidth;
-  //                                       CGFloat offsetFromBottom =
-  //                                       mousePos.y;
-
-  //                                       NSPoint newOrigin = NSMakePoint(
-  //                                           mousePos.x, offsetFromBottom);
-
-  //                                       [window setFrameOrigin:newOrigin];
-  //                                       [window setIgnoresMouseEvents:YES];
-  //                                     }
-  //                                   }];
-
-  // __block id keyboardMonitor = [NSEvent
-  //     addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown |
-  //     NSEventMaskKeyUp
-  //                                  handler:^NSEvent *(NSEvent *event) {
-  //                                    end = true;
-  //                                    if (event.keyCode == 53) {
-  //                                      [window setIgnoresMouseEvents:YES];
-  //                                    }
-  //                                    if (event.keyCode == 123) {
-  //                                    }
-  //                                    if (event.keyCode == 124) {
-  //                                    }
-  //                                    if (event.keyCode == 125) {
-  //                                      self.offsetFromBottom--;
-  //                                    }
-  //                                    if (event.keyCode == 126) {
-  //                                      self.offsetFromBottom++;
-  //                                    }
-  //                                    if (end) {
-  //                                      [NSEvent
-  //                                      removeMonitor:keyboardMonitor];
-  //                                    }
-  //                                    return nil;
-  //                                  }];
+  [self.prefsWC showWindow:nil];
+  [self.prefsWC.window center];
+  [NSApp activateIgnoringOtherApps:YES];
 }
 
 @end
@@ -351,9 +249,6 @@ int main(int argc, const char *argv[]) {
     [window makeKeyAndOrderFront:nil];
 
     StatusApp *manager = [[StatusApp alloc] init];
-    manager.overlayWindow = window;
-    manager.offsetFromBottom = &offsetFromBottom;
-    manager.offsetFromRight = &offsetFromRight;
     [manager setupStatusItem];
 
     std::thread([label]() {
