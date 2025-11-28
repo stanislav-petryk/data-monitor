@@ -101,11 +101,51 @@ int getCPUUsage() {
   return (int)(totalUsage / cpuCount);
 }
 
+// vars
+
+CGFloat offsetFromTop = 25;
+CGFloat offsetFromLeft = 2;
+NSWindow *gOverlayWindow = nil;
+
+BOOL batteryEnabled = true;
+BOOL maxCapEnabled = true;
+BOOL tempEnabled = true;
+BOOL cpuLoadEnabled = true;
+BOOL gpuLoadEnabled = true;
+
+// save data
+
+void savePreferences() {
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  [defaults setInteger:(int)offsetFromLeft forKey:@"offsetFromLeft"];
+  [defaults setInteger:(int)offsetFromTop forKey:@"offsetFromTop"];
+  [defaults synchronize];
+}
+
+void loadPreferences() {
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+  if ([defaults objectForKey:@"offsetFromLeft"])
+    offsetFromLeft = (CGFloat)[defaults integerForKey:@"offsetFromLeft"];
+
+  if ([defaults objectForKey:@"offsetFromTop"])
+    offsetFromTop = (CGFloat)[defaults integerForKey:@"offsetFromTop"];
+}
+
 // interface
 
-CGFloat gOffsetFromTop = -20;
-CGFloat gOffsetFromRight = 10;
-NSWindow *gOverlayWindow = nil;
+static NSTextField *makeLabel(NSString *text) {
+  NSTextField *label = [[NSTextField alloc] init];
+  label.stringValue = text;
+  label.bezeled = NO;
+  label.drawsBackground = NO;
+  label.editable = NO;
+  label.selectable = NO;
+  label.font = [NSFont systemFontOfSize:14];
+  label.alignment = NSTextAlignmentCenter;
+  label.translatesAutoresizingMaskIntoConstraints = NO;
+  return label;
+}
 
 void updateOverlayPosition() {
   if (!gOverlayWindow)
@@ -117,10 +157,9 @@ void updateOverlayPosition() {
   CGFloat windowWidth = gOverlayWindow.frame.size.width;
   CGFloat windowHeight = gOverlayWindow.frame.size.height;
 
-  NSRect newFrame =
-      NSMakeRect(NSMaxX(screenFrame) - windowWidth - gOffsetFromRight,
-                 NSMaxY(screenFrame) - windowHeight - gOffsetFromTop,
-                 windowWidth, windowHeight);
+  NSRect newFrame = NSMakeRect(
+      offsetFromLeft, NSMaxY(screenFrame) - windowHeight - offsetFromTop,
+      windowWidth, windowHeight);
 
   dispatch_async(dispatch_get_main_queue(), ^{
     [gOverlayWindow setFrame:newFrame display:YES animate:NO];
@@ -128,23 +167,38 @@ void updateOverlayPosition() {
   });
 }
 
+@interface BackgroundView : NSView
+@end
+
+@implementation BackgroundView
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+}
+
+@end
+
 @interface PreferencesWindowController : NSWindowController
 @end
 
 @implementation PreferencesWindowController
 
 - (instancetype)init {
-  NSRect frame = NSMakeRect(0, 0, 420, 260);
+  NSRect frame = NSMakeRect(0, 0, 350, 350);
 
   NSWindow *window = [[NSWindow alloc]
       initWithContentRect:frame
-                styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                           NSWindowStyleMaskMiniaturizable)
+                styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
                   backing:NSBackingStoreBuffered
                     defer:NO];
 
   window.title = @"Preferences";
   window.releasedWhenClosed = NO;
+  window.titlebarAppearsTransparent = YES;
 
   self = [super initWithWindow:window];
   if (self) {
@@ -154,36 +208,36 @@ void updateOverlayPosition() {
 }
 
 - (void)setupUI {
-  NSView *content = self.window.contentView;
+  BackgroundView *content =
+      [[BackgroundView alloc] initWithFrame:self.window.contentView.bounds];
+  self.window.contentView = content;
 
-  NSTextField *title =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(5, 230, 250, 24)];
-  [title setStringValue:@"Overlay Position (from top-right corner)"];
-  [title setBezeled:NO];
-  [title setEditable:NO];
-  [title setSelectable:NO];
-  [title setDrawsBackground:NO];
+  NSTextField *title = makeLabel(@"Overlay Position (from top-left corner)");
   [content addSubview:title];
 
+  [NSLayoutConstraint activateConstraints:@[
+    [title.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+    [title.topAnchor constraintEqualToAnchor:content.topAnchor constant:20]
+  ]];
+
   NSTextField *xLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 205, 80, 24)];
-  [xLabel setStringValue:@"Right:"];
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 200, 80, 24)];
+  [xLabel setStringValue:@"Left:"];
   [xLabel setBezeled:NO];
   [xLabel setEditable:NO];
   [xLabel setDrawsBackground:NO];
   [content addSubview:xLabel];
 
   NSTextField *xField =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(65, 205, 80, 24)];
+      [[NSTextField alloc] initWithFrame:NSMakeRect(50, 205, 80, 24)];
   [xField
-      setStringValue:[NSString stringWithFormat:@"%d", (int)gOffsetFromRight]];
+      setStringValue:[NSString stringWithFormat:@"%d", (int)offsetFromLeft]];
   xField.tag = 1;
   xField.target = self;
-  xField.action = @selector(updateCoords:);
   [content addSubview:xField];
 
   NSTextField *yLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 175, 80, 24)];
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 170, 80, 24)];
   [yLabel setStringValue:@"Top:"];
   [yLabel setBezeled:NO];
   [yLabel setEditable:NO];
@@ -191,24 +245,187 @@ void updateOverlayPosition() {
   [content addSubview:yLabel];
 
   NSTextField *yField =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(65, 175, 80, 24)];
-  [yField
-      setStringValue:[NSString stringWithFormat:@"%d", (int)gOffsetFromTop]];
+      [[NSTextField alloc] initWithFrame:NSMakeRect(50, 175, 80, 24)];
+  [yField setStringValue:[NSString stringWithFormat:@"%d", (int)offsetFromTop]];
   yField.tag = 2;
   yField.target = self;
-  yField.action = @selector(updateCoords:);
   [content addSubview:yField];
+
+  [[NSNotificationCenter defaultCenter]
+      addObserver:self
+         selector:@selector(textFieldChanged:)
+             name:NSControlTextDidChangeNotification
+           object:xField];
+
+  [[NSNotificationCenter defaultCenter]
+      addObserver:self
+         selector:@selector(textFieldChanged:)
+             name:NSControlTextDidChangeNotification
+           object:yField];
+
+  NSButton *resetBtn =
+      [[NSButton alloc] initWithFrame:NSMakeRect(15, 140, 115, 28)];
+  resetBtn.bezelStyle = NSBezelStyleRounded;
+  resetBtn.title = @"Reset";
+  resetBtn.target = self;
+  resetBtn.action = @selector(resetPosition:);
+  [content addSubview:resetBtn];
+
+  NSTextField *dataTitle =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(5, 100, 250, 24)];
+  [dataTitle setStringValue:@"Data that will display"];
+  [dataTitle setBezeled:NO];
+  [dataTitle setEditable:NO];
+  [dataTitle setDrawsBackground:NO];
+  [content addSubview:dataTitle];
+
+  NSTextField *batteryLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 80, 150, 24)];
+  [batteryLabel setStringValue:@"Battery charge"];
+  [batteryLabel setBezeled:NO];
+  [batteryLabel setEditable:NO];
+  [batteryLabel setDrawsBackground:NO];
+  [content addSubview:batteryLabel];
+  NSButton *batteryCheckbox =
+      [[NSButton alloc] initWithFrame:NSMakeRect(200, 80, 20, 24)];
+  [batteryCheckbox setButtonType:NSButtonTypeSwitch];
+  [batteryCheckbox setState:NSControlStateValueOn];
+  [batteryCheckbox setTarget:self];
+  [batteryCheckbox setAction:@selector(batteryCheckboxToggled:)];
+  [content addSubview:batteryCheckbox];
+
+  NSTextField *maxCapLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 60, 150, 24)];
+  [maxCapLabel setStringValue:@"Max battery capacity"];
+  [maxCapLabel setBezeled:NO];
+  [maxCapLabel setEditable:NO];
+  [maxCapLabel setDrawsBackground:NO];
+  [content addSubview:maxCapLabel];
+  NSButton *maxCapCheckbox =
+      [[NSButton alloc] initWithFrame:NSMakeRect(200, 60, 20, 24)];
+  [maxCapCheckbox setButtonType:NSButtonTypeSwitch];
+  [maxCapCheckbox setState:NSControlStateValueOn];
+  [maxCapCheckbox setTarget:self];
+  [maxCapCheckbox setAction:@selector(maxCapCheckboxToggled:)];
+  [content addSubview:maxCapCheckbox];
+
+  NSTextField *tempLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 40, 150, 24)];
+  [tempLabel setStringValue:@"Battery temperature"];
+  [tempLabel setBezeled:NO];
+  [tempLabel setEditable:NO];
+  [tempLabel setDrawsBackground:NO];
+  [content addSubview:tempLabel];
+  NSButton *tempCheckbox =
+      [[NSButton alloc] initWithFrame:NSMakeRect(200, 40, 20, 24)];
+  [tempCheckbox setButtonType:NSButtonTypeSwitch];
+  [tempCheckbox setState:NSControlStateValueOn];
+  [tempCheckbox setTarget:self];
+  [tempCheckbox setAction:@selector(tempCheckboxToggled:)];
+  [content addSubview:tempCheckbox];
+
+  NSTextField *cpuLoadLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 20, 80, 24)];
+  [cpuLoadLabel setStringValue:@"CPU Load"];
+  [cpuLoadLabel setBezeled:NO];
+  [cpuLoadLabel setEditable:NO];
+  [cpuLoadLabel setDrawsBackground:NO];
+  [content addSubview:cpuLoadLabel];
+  NSButton *cpuLoadCheckbox =
+      [[NSButton alloc] initWithFrame:NSMakeRect(100, 20, 20, 24)];
+  [cpuLoadCheckbox setButtonType:NSButtonTypeSwitch];
+  [cpuLoadCheckbox setState:NSControlStateValueOn];
+  [cpuLoadCheckbox setTarget:self];
+  [cpuLoadCheckbox setAction:@selector(cpuLoadCheckboxToggled:)];
+  [content addSubview:cpuLoadCheckbox];
+
+  NSTextField *gpuLoadLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 0, 80, 24)];
+  [gpuLoadLabel setStringValue:@"GPU Load"];
+  [gpuLoadLabel setBezeled:NO];
+  [gpuLoadLabel setEditable:NO];
+  [gpuLoadLabel setDrawsBackground:NO];
+  [content addSubview:gpuLoadLabel];
+  NSButton *gpuLoadCheckbox =
+      [[NSButton alloc] initWithFrame:NSMakeRect(100, 0, 20, 24)];
+  [gpuLoadCheckbox setButtonType:NSButtonTypeSwitch];
+  [gpuLoadCheckbox setState:NSControlStateValueOn];
+  [gpuLoadCheckbox setTarget:self];
+  [gpuLoadCheckbox setAction:@selector(gpuLoadCheckboxToggled:)];
+  [content addSubview:gpuLoadCheckbox];
+}
+
+- (void)resetPosition:(id)sender {
+  NSTextField *xField = [self.window.contentView viewWithTag:1];
+  NSTextField *yField = [self.window.contentView viewWithTag:2];
+
+  [xField setStringValue:@"2"];
+  [yField setStringValue:@"25"];
+
+  [self updateCoords:xField];
+  [self updateCoords:yField];
+}
+
+- (void)textFieldChanged:(NSNotification *)note {
+  NSTextField *field = note.object;
+
+  if (field.tag == 1) {
+    offsetFromLeft = field.intValue;
+  }
+  else if (field.tag == 2) {
+    offsetFromTop = field.intValue;
+  }
+
+  updateOverlayPosition();
+  savePreferences();
 }
 
 - (void)updateCoords:(NSTextField *)sender {
   if (sender.tag == 1) {
-    gOffsetFromRight = sender.intValue;
+    offsetFromLeft = sender.intValue;
   }
   else if (sender.tag == 2) {
-    gOffsetFromTop = sender.intValue;
+    offsetFromTop = sender.intValue;
   }
 
   updateOverlayPosition();
+  savePreferences();
+}
+
+- (void)batteryCheckboxToggled:(NSButton *)sender {
+  batteryEnabled = (sender.state == NSControlStateValueOn);
+}
+
+- (void)maxCapCheckboxToggled:(NSButton *)sender {
+  maxCapEnabled = (sender.state == NSControlStateValueOn);
+}
+
+- (void)tempCheckboxToggled:(NSButton *)sender {
+  tempEnabled = (sender.state == NSControlStateValueOn);
+}
+
+- (void)cpuLoadCheckboxToggled:(NSButton *)sender {
+  cpuLoadEnabled = (sender.state == NSControlStateValueOn);
+}
+
+- (void)gpuLoadCheckboxToggled:(NSButton *)sender {
+  gpuLoadEnabled = (sender.state == NSControlStateValueOn);
+}
+
+- (void)keyDown:(NSEvent *)event {
+  unsigned short code = [event keyCode];
+  if ((event.modifierFlags & NSEventModifierFlagCommand)) {
+    if (code == 13) {
+      [self.window performClose:nil];
+      return;
+    }
+    else if (code == 12) {
+      [NSApp terminate:nil];
+      return;
+    }
+  }
+
+  [super keyDown:event];
 }
 
 @end
@@ -229,8 +446,6 @@ void updateOverlayPosition() {
       initWithContentsOfFile:[[NSBundle mainBundle]
                                  pathForResource:@"DataMonitorIcon"
                                           ofType:@"png"]];
-  if (!icon)
-    NSLog(@"Icon not found!");
   [icon setSize:NSMakeSize(23, 23)];
   self.statusItem.button.image = icon;
 
@@ -258,6 +473,23 @@ void updateOverlayPosition() {
   self.statusItem.menu = menu;
 }
 
+- (void)setupMenu {
+  NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+  NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+  [mainMenu addItem:appMenuItem];
+  [NSApp setMainMenu:mainMenu];
+
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"App"];
+  NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit"
+                                                    action:@selector(quitApp:)
+                                             keyEquivalent:@"q"];
+  quitItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  quitItem.target = self;
+  [appMenu addItem:quitItem];
+
+  [appMenuItem setSubmenu:appMenu];
+}
+
 - (void)quitApp:(id)sender {
   [NSApp terminate:nil];
 }
@@ -278,17 +510,16 @@ int main(int argc, const char *argv[]) {
   @autoreleasepool {
     NSApplication *app = [NSApplication sharedApplication];
 
+    loadPreferences();
+
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-    // [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
     NSRect screenF = [[NSScreen mainScreen] frame];
     CGFloat windowWidth = 100;
     CGFloat windowHeight = 120;
-    gOffsetFromTop = 822;
-    gOffsetFromRight = -8;
 
-    NSRect frame = NSMakeRect(NSMaxX(screenF) - windowWidth - gOffsetFromRight,
-                              NSMaxY(screenF) - windowHeight - gOffsetFromTop,
+    NSRect frame = NSMakeRect(NSMaxX(screenF) - windowWidth - offsetFromLeft,
+                              NSMaxY(screenF) - windowHeight - offsetFromTop,
                               windowWidth, windowHeight);
 
     NSWindow *window =
@@ -319,12 +550,13 @@ int main(int argc, const char *argv[]) {
 
     NSScreen *screen = [NSScreen mainScreen];
     NSRect screenFrame = [screen frame];
-    NSPoint newOrigin = NSMakePoint(NSMinX(frame), gOffsetFromTop);
+    NSPoint newOrigin = NSMakePoint(NSMinX(frame), offsetFromTop);
     [window setFrameOrigin:newOrigin];
 
     [window makeKeyAndOrderFront:nil];
 
     StatusApp *manager = [[StatusApp alloc] init];
+    [manager setupMenu];
     [manager setupStatusItem];
 
     std::thread([label]() {
@@ -336,24 +568,27 @@ int main(int argc, const char *argv[]) {
 
       while (true) {
         std::stringstream ss;
-        if (i % 3 == 0) {
+        if (i == 3) {
+          battery = getBatteryPercent();
+          maxCap = getBatteryMaxCapacity();
+          temp = getBatteryTemp();
+          i = 0;
           dispatch_async(
               dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                 gpuUsage = getGPUUsage();
               });
         }
-        if (i == 15) {
-          battery = getBatteryPercent();
-          maxCap = getBatteryMaxCapacity();
-          temp = getBatteryTemp();
-          i = 0;
-        }
         i++;
-        ss << "Battery: " << battery << std::endl;
-        ss << "MaxCap: " << maxCap << std::endl;
-        ss << "Temp: " << temp << "°C\n";
-        ss << "CPU Load: " << getCPUUsage() << "%" << std::endl;
-        ss << "GPU Load: " << gpuUsage;
+        if (batteryEnabled)
+          ss << "Battery: " << battery << std::endl;
+        if (maxCapEnabled)
+          ss << "MaxCap: " << maxCap << std::endl;
+        if (tempEnabled)
+          ss << "Temp: " << temp << "°C\n";
+        if (cpuLoadEnabled)
+          ss << "CPU Load: " << getCPUUsage() << "%" << std::endl;
+        if (gpuLoadEnabled)
+          ss << "GPU Load: " << gpuUsage;
 
         NSString *nsStr = [NSString stringWithUTF8String:ss.str().c_str()];
         dispatch_async(dispatch_get_main_queue(), ^{
