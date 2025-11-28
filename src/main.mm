@@ -119,6 +119,11 @@ void savePreferences() {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
   [defaults setInteger:(int)offsetFromLeft forKey:@"offsetFromLeft"];
   [defaults setInteger:(int)offsetFromTop forKey:@"offsetFromTop"];
+  [defaults setBool:(BOOL)batteryEnabled forKey:@"batteryEnabled"];
+  [defaults setBool:(BOOL)maxCapEnabled forKey:@"maxCapEnabled"];
+  [defaults setBool:(BOOL)tempEnabled forKey:@"tempEnabled"];
+  [defaults setBool:(BOOL)cpuLoadEnabled forKey:@"cpuLoadEnabled"];
+  [defaults setBool:(BOOL)gpuLoadEnabled forKey:@"gpuLoadEnabled"];
   [defaults synchronize];
 }
 
@@ -130,6 +135,21 @@ void loadPreferences() {
 
   if ([defaults objectForKey:@"offsetFromTop"])
     offsetFromTop = (CGFloat)[defaults integerForKey:@"offsetFromTop"];
+
+  if ([defaults objectForKey:@"batteryEnabled"])
+    batteryEnabled = (BOOL)[defaults boolForKey:@"batteryEnabled"];
+
+  if ([defaults objectForKey:@"maxCapEnabled"])
+    maxCapEnabled = (BOOL)[defaults boolForKey:@"maxCapEnabled"];
+
+  if ([defaults objectForKey:@"tempEnabled"])
+    tempEnabled = (BOOL)[defaults boolForKey:@"tempEnabled"];
+
+  if ([defaults objectForKey:@"cpuLoadEnabled"])
+    cpuLoadEnabled = (BOOL)[defaults boolForKey:@"cpuLoadEnabled"];
+
+  if ([defaults objectForKey:@"gpuLoadEnabled"])
+    gpuLoadEnabled = (BOOL)[defaults boolForKey:@"gpuLoadEnabled"];
 }
 
 // interface
@@ -142,9 +162,42 @@ static NSTextField *makeLabel(NSString *text) {
   label.editable = NO;
   label.selectable = NO;
   label.font = [NSFont systemFontOfSize:14];
-  label.alignment = NSTextAlignmentCenter;
+  label.alignment = NSTextAlignmentRight;
   label.translatesAutoresizingMaskIntoConstraints = NO;
   return label;
+}
+
+static NSButton *makeButton(NSString *title, SEL action, id target) {
+  NSButton *button = [[NSButton alloc] init];
+  button.title = title;
+  button.bezelStyle = NSBezelStyleRounded;
+  button.target = target;
+  button.action = action;
+  button.translatesAutoresizingMaskIntoConstraints = NO;
+  return button;
+}
+
+static NSButton *makeSwitch(NSString *title, id target, SEL action,
+                            BOOL state) {
+  NSButton *sw = [[NSButton alloc] init];
+  sw.title = title;
+  sw.buttonType = NSButtonTypeSwitch;
+  sw.state = state;
+  sw.target = target;
+  sw.action = action;
+  sw.translatesAutoresizingMaskIntoConstraints = NO;
+  return sw;
+}
+
+static NSTextField *makeTextField(NSString *initialValue, id target, SEL action,
+                                  NSInteger tag) {
+  NSTextField *field = [[NSTextField alloc] init];
+  field.stringValue = initialValue;
+  field.tag = tag;
+  field.target = target;
+  field.action = action;
+  field.translatesAutoresizingMaskIntoConstraints = NO;
+  return field;
 }
 
 void updateOverlayPosition() {
@@ -212,43 +265,37 @@ void updateOverlayPosition() {
       [[BackgroundView alloc] initWithFrame:self.window.contentView.bounds];
   self.window.contentView = content;
 
-  NSTextField *title = makeLabel(@"Overlay Position (from top-left corner)");
+  NSTextField *title = makeLabel(@"Overlay Position:");
   [content addSubview:title];
-
   [NSLayoutConstraint activateConstraints:@[
     [title.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
     [title.topAnchor constraintEqualToAnchor:content.topAnchor constant:20]
   ]];
 
-  NSTextField *xLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 200, 80, 24)];
-  [xLabel setStringValue:@"Left:"];
-  [xLabel setBezeled:NO];
-  [xLabel setEditable:NO];
-  [xLabel setDrawsBackground:NO];
+  NSTextField *xLabel = makeLabel(@"Left:");
   [content addSubview:xLabel];
 
   NSTextField *xField =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(50, 205, 80, 24)];
-  [xField
-      setStringValue:[NSString stringWithFormat:@"%d", (int)offsetFromLeft]];
-  xField.tag = 1;
-  xField.target = self;
+      makeTextField([NSString stringWithFormat:@"%d", (int)offsetFromLeft],
+                    self, @selector(resetPosition:), 1);
   [content addSubview:xField];
 
-  NSTextField *yLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 170, 80, 24)];
-  [yLabel setStringValue:@"Top:"];
-  [yLabel setBezeled:NO];
-  [yLabel setEditable:NO];
-  [yLabel setDrawsBackground:NO];
+  [NSLayoutConstraint activateConstraints:@[
+    [xLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:10],
+    [xField.topAnchor constraintEqualToAnchor:xLabel.topAnchor],
+    [xLabel.trailingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                          constant:-5],
+    [xField.leadingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                         constant:5],
+    [xField.widthAnchor constraintEqualToConstant:80]
+  ]];
+
+  NSTextField *yLabel = makeLabel(@"Top:");
   [content addSubview:yLabel];
 
   NSTextField *yField =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(50, 175, 80, 24)];
-  [yField setStringValue:[NSString stringWithFormat:@"%d", (int)offsetFromTop]];
-  yField.tag = 2;
-  yField.target = self;
+      makeTextField([NSString stringWithFormat:@"%d", (int)offsetFromTop], self,
+                    @selector(resetPosition:), 2);
   [content addSubview:yField];
 
   [[NSNotificationCenter defaultCenter]
@@ -263,96 +310,90 @@ void updateOverlayPosition() {
              name:NSControlTextDidChangeNotification
            object:yField];
 
-  NSButton *resetBtn =
-      [[NSButton alloc] initWithFrame:NSMakeRect(15, 140, 115, 28)];
-  resetBtn.bezelStyle = NSBezelStyleRounded;
-  resetBtn.title = @"Reset";
-  resetBtn.target = self;
-  resetBtn.action = @selector(resetPosition:);
-  [content addSubview:resetBtn];
+  [NSLayoutConstraint activateConstraints:@[
+    [yLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:40],
+    [yField.topAnchor constraintEqualToAnchor:yLabel.topAnchor],
+    [yLabel.trailingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                          constant:-5],
+    [yField.leadingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                         constant:5],
+    [yField.widthAnchor constraintEqualToConstant:80]
+  ]];
 
-  NSTextField *dataTitle =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(5, 100, 250, 24)];
-  [dataTitle setStringValue:@"Data that will display"];
-  [dataTitle setBezeled:NO];
-  [dataTitle setEditable:NO];
-  [dataTitle setDrawsBackground:NO];
+  NSButton *resetButton = makeButton(@"Reset", @selector(resetPosition:), self);
+  [content addSubview:resetButton];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [resetButton.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                          constant:70],
+    [resetButton.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSTextField *dataTitle = makeLabel(@"Data that will display:");
   [content addSubview:dataTitle];
 
-  NSTextField *batteryLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 80, 150, 24)];
-  [batteryLabel setStringValue:@"Battery charge"];
-  [batteryLabel setBezeled:NO];
-  [batteryLabel setEditable:NO];
-  [batteryLabel setDrawsBackground:NO];
-  [content addSubview:batteryLabel];
+  [NSLayoutConstraint activateConstraints:@[
+    [dataTitle.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                        constant:120],
+    [dataTitle.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
   NSButton *batteryCheckbox =
-      [[NSButton alloc] initWithFrame:NSMakeRect(200, 80, 20, 24)];
-  [batteryCheckbox setButtonType:NSButtonTypeSwitch];
-  [batteryCheckbox setState:NSControlStateValueOn];
-  [batteryCheckbox setTarget:self];
-  [batteryCheckbox setAction:@selector(batteryCheckboxToggled:)];
+      makeSwitch(@"Battery charge", self, @selector(batteryCheckboxToggled:),
+                 batteryEnabled);
   [content addSubview:batteryCheckbox];
 
-  NSTextField *maxCapLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 60, 150, 24)];
-  [maxCapLabel setStringValue:@"Max battery capacity"];
-  [maxCapLabel setBezeled:NO];
-  [maxCapLabel setEditable:NO];
-  [maxCapLabel setDrawsBackground:NO];
-  [content addSubview:maxCapLabel];
+  [NSLayoutConstraint activateConstraints:@[
+    [batteryCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:150],
+    [batteryCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
   NSButton *maxCapCheckbox =
-      [[NSButton alloc] initWithFrame:NSMakeRect(200, 60, 20, 24)];
-  [maxCapCheckbox setButtonType:NSButtonTypeSwitch];
-  [maxCapCheckbox setState:NSControlStateValueOn];
-  [maxCapCheckbox setTarget:self];
-  [maxCapCheckbox setAction:@selector(maxCapCheckboxToggled:)];
+      makeSwitch(@"Max battery capacity", self,
+                 @selector(maxCapCheckboxToggled:), maxCapEnabled);
   [content addSubview:maxCapCheckbox];
 
-  NSTextField *tempLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 40, 150, 24)];
-  [tempLabel setStringValue:@"Battery temperature"];
-  [tempLabel setBezeled:NO];
-  [tempLabel setEditable:NO];
-  [tempLabel setDrawsBackground:NO];
-  [content addSubview:tempLabel];
+  [NSLayoutConstraint activateConstraints:@[
+    [maxCapCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                             constant:180],
+    [maxCapCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
   NSButton *tempCheckbox =
-      [[NSButton alloc] initWithFrame:NSMakeRect(200, 40, 20, 24)];
-  [tempCheckbox setButtonType:NSButtonTypeSwitch];
-  [tempCheckbox setState:NSControlStateValueOn];
-  [tempCheckbox setTarget:self];
-  [tempCheckbox setAction:@selector(tempCheckboxToggled:)];
+      makeSwitch(@"Battery temperature", self, @selector(tempCheckboxToggled:),
+                 tempEnabled);
   [content addSubview:tempCheckbox];
 
-  NSTextField *cpuLoadLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 20, 80, 24)];
-  [cpuLoadLabel setStringValue:@"CPU Load"];
-  [cpuLoadLabel setBezeled:NO];
-  [cpuLoadLabel setEditable:NO];
-  [cpuLoadLabel setDrawsBackground:NO];
-  [content addSubview:cpuLoadLabel];
-  NSButton *cpuLoadCheckbox =
-      [[NSButton alloc] initWithFrame:NSMakeRect(100, 20, 20, 24)];
-  [cpuLoadCheckbox setButtonType:NSButtonTypeSwitch];
-  [cpuLoadCheckbox setState:NSControlStateValueOn];
-  [cpuLoadCheckbox setTarget:self];
-  [cpuLoadCheckbox setAction:@selector(cpuLoadCheckboxToggled:)];
+  [NSLayoutConstraint activateConstraints:@[
+    [tempCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                           constant:210],
+    [tempCheckbox.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *cpuLoadCheckbox = makeSwitch(
+      @"CPU Load", self, @selector(cpuLoadCheckboxToggled:), cpuLoadEnabled);
   [content addSubview:cpuLoadCheckbox];
 
-  NSTextField *gpuLoadLabel =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 0, 80, 24)];
-  [gpuLoadLabel setStringValue:@"GPU Load"];
-  [gpuLoadLabel setBezeled:NO];
-  [gpuLoadLabel setEditable:NO];
-  [gpuLoadLabel setDrawsBackground:NO];
-  [content addSubview:gpuLoadLabel];
-  NSButton *gpuLoadCheckbox =
-      [[NSButton alloc] initWithFrame:NSMakeRect(100, 0, 20, 24)];
-  [gpuLoadCheckbox setButtonType:NSButtonTypeSwitch];
-  [gpuLoadCheckbox setState:NSControlStateValueOn];
-  [gpuLoadCheckbox setTarget:self];
-  [gpuLoadCheckbox setAction:@selector(gpuLoadCheckboxToggled:)];
+  [NSLayoutConstraint activateConstraints:@[
+    [cpuLoadCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:240],
+    [cpuLoadCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *gpuLoadCheckbox = makeSwitch(
+      @"GPU Load", self, @selector(gpuLoadCheckboxToggled:), gpuLoadEnabled);
   [content addSubview:gpuLoadCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [gpuLoadCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:270],
+    [gpuLoadCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
 }
 
 - (void)resetPosition:(id)sender {
@@ -394,22 +435,27 @@ void updateOverlayPosition() {
 
 - (void)batteryCheckboxToggled:(NSButton *)sender {
   batteryEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
 }
 
 - (void)maxCapCheckboxToggled:(NSButton *)sender {
   maxCapEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
 }
 
 - (void)tempCheckboxToggled:(NSButton *)sender {
   tempEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
 }
 
 - (void)cpuLoadCheckboxToggled:(NSButton *)sender {
   cpuLoadEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
 }
 
 - (void)gpuLoadCheckboxToggled:(NSButton *)sender {
   gpuLoadEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
 }
 
 - (void)keyDown:(NSEvent *)event {
