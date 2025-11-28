@@ -1,4 +1,3 @@
-#include <AppKit/AppKit.h>
 #include <Cocoa/Cocoa.h>
 #include <chrono>
 #include <cstdio>
@@ -500,10 +499,8 @@ void updateOverlayPosition() {
                                                     action:@selector(quitApp:)
                                              keyEquivalent:@""];
 
-  // NSMenuItem *textItem = [[NSMenuItem alloc] initWithTitle:@"Hello world"
-  //                                                   action:nil
-  //                                            keyEquivalent:@""];
-  // [menu insertItem:textItem atIndex:0];
+  quitItem.keyEquivalent = @"q";
+  quitItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
 
   NSMenuItem *preferences =
       [[NSMenuItem alloc] initWithTitle:@"Preferences"
@@ -512,6 +509,8 @@ void updateOverlayPosition() {
   preferences.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   preferences.target = self;
   [menu addItem:preferences];
+
+  [menu addItem:[NSMenuItem separatorItem]];
 
   quitItem.target = self;
   [menu addItem:quitItem];
