@@ -7,6 +7,8 @@
 #include <string>
 #include <thread>
 
+// get mac data
+
 std::string execCommand(const char *cmd) {
   char buffer[128];
   std::string result = "";
@@ -88,7 +90,6 @@ int getCPUUsage() {
     totalUsage += (user + system + nice) / total * 100.0f;
   }
 
-  // очистка попередніх даних
   if (prevInfoArray)
     vm_deallocate(mach_task_self(), (vm_address_t)prevInfoArray,
                   sizeof(integer_t) * prevInfoCount);
@@ -98,6 +99,33 @@ int getCPUUsage() {
   prevCPUCount = cpuCount;
 
   return (int)(totalUsage / cpuCount);
+}
+
+// interface
+
+CGFloat gOffsetFromTop = -20;
+CGFloat gOffsetFromRight = 10;
+NSWindow *gOverlayWindow = nil;
+
+void updateOverlayPosition() {
+  if (!gOverlayWindow)
+    return;
+
+  NSScreen *screen = [NSScreen mainScreen];
+  NSRect screenFrame = [screen frame];
+
+  CGFloat windowWidth = gOverlayWindow.frame.size.width;
+  CGFloat windowHeight = gOverlayWindow.frame.size.height;
+
+  NSRect newFrame =
+      NSMakeRect(NSMaxX(screenFrame) - windowWidth - gOffsetFromRight,
+                 NSMaxY(screenFrame) - windowHeight - gOffsetFromTop,
+                 windowWidth, windowHeight);
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [gOverlayWindow setFrame:newFrame display:YES animate:NO];
+    [gOverlayWindow displayIfNeeded];
+  });
 }
 
 @interface PreferencesWindowController : NSWindowController
@@ -128,14 +156,59 @@ int getCPUUsage() {
 - (void)setupUI {
   NSView *content = self.window.contentView;
 
-  NSTextField *label =
-      [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 200, 24)];
-  [label setStringValue:@"Preferences Window"];
-  [label setBezeled:NO];
-  [label setEditable:NO];
-  [label setSelectable:NO];
-  [label setDrawsBackground:NO];
-  [content addSubview:label];
+  NSTextField *title =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(5, 230, 250, 24)];
+  [title setStringValue:@"Overlay Position (from top-right corner)"];
+  [title setBezeled:NO];
+  [title setEditable:NO];
+  [title setSelectable:NO];
+  [title setDrawsBackground:NO];
+  [content addSubview:title];
+
+  NSTextField *xLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 205, 80, 24)];
+  [xLabel setStringValue:@"Right:"];
+  [xLabel setBezeled:NO];
+  [xLabel setEditable:NO];
+  [xLabel setDrawsBackground:NO];
+  [content addSubview:xLabel];
+
+  NSTextField *xField =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(65, 205, 80, 24)];
+  [xField
+      setStringValue:[NSString stringWithFormat:@"%d", (int)gOffsetFromRight]];
+  xField.tag = 1;
+  xField.target = self;
+  xField.action = @selector(updateCoords:);
+  [content addSubview:xField];
+
+  NSTextField *yLabel =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(15, 175, 80, 24)];
+  [yLabel setStringValue:@"Top:"];
+  [yLabel setBezeled:NO];
+  [yLabel setEditable:NO];
+  [yLabel setDrawsBackground:NO];
+  [content addSubview:yLabel];
+
+  NSTextField *yField =
+      [[NSTextField alloc] initWithFrame:NSMakeRect(65, 175, 80, 24)];
+  [yField
+      setStringValue:[NSString stringWithFormat:@"%d", (int)gOffsetFromTop]];
+  yField.tag = 2;
+  yField.target = self;
+  yField.action = @selector(updateCoords:);
+  [content addSubview:yField];
+}
+
+- (void)updateCoords:(NSTextField *)sender {
+  if (sender.tag == 1) {
+    gOffsetFromRight = sender.intValue;
+  }
+  else if (sender.tag == 2) {
+    gOffsetFromTop = sender.intValue;
+  }
+
+  updateOverlayPosition();
 }
 
 @end
@@ -206,21 +279,26 @@ int main(int argc, const char *argv[]) {
     NSApplication *app = [NSApplication sharedApplication];
 
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    // [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
     NSRect screenF = [[NSScreen mainScreen] frame];
     CGFloat windowWidth = 100;
     CGFloat windowHeight = 120;
-    CGFloat offsetFromBottom = -20;
-    CGFloat offsetFromRight = 10;
+    gOffsetFromTop = 822;
+    gOffsetFromRight = -8;
 
-    NSRect frame = NSMakeRect(NSMaxX(screenF) - windowWidth - offsetFromRight,
-                              offsetFromBottom, windowWidth, windowHeight);
+    NSRect frame = NSMakeRect(NSMaxX(screenF) - windowWidth - gOffsetFromRight,
+                              NSMaxY(screenF) - windowHeight - gOffsetFromTop,
+                              windowWidth, windowHeight);
 
     NSWindow *window =
         [[NSWindow alloc] initWithContentRect:frame
                                     styleMask:NSWindowStyleMaskBorderless
                                       backing:NSBackingStoreBuffered
                                         defer:NO];
+
+    gOverlayWindow = window;
+    updateOverlayPosition();
 
     [window setLevel:NSStatusWindowLevel];
     [window setOpaque:NO];
@@ -241,7 +319,7 @@ int main(int argc, const char *argv[]) {
 
     NSScreen *screen = [NSScreen mainScreen];
     NSRect screenFrame = [screen frame];
-    NSPoint newOrigin = NSMakePoint(NSMinX(frame), offsetFromBottom);
+    NSPoint newOrigin = NSMakePoint(NSMinX(frame), gOffsetFromTop);
     [window setFrameOrigin:newOrigin];
 
     [window makeKeyAndOrderFront:nil];
