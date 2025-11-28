@@ -18,12 +18,12 @@ I made it for myself to monitor important data.
 
 - Program take system info using mach and terminal commands
 - It display to screen with Cocoa
-- It refresh data like that:
+- And refresh data like that:
   - CPU Load update every second
-  - Battery, Temp and MaxCap every 15 seconds - because it changed rarely
+  - Battery, MaxCap and Temp every 3 seconds - because it changed rarely
   - GPU Load every 3 second - script that give GPU Load is slow so i make it like that
 
-> window work like overlay so you don't can click to it
+> window work like overlay so you can't click to it
 
 ## thats display
 
