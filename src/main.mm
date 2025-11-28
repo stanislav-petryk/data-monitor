@@ -1,3 +1,4 @@
+#include <AppKit/AppKit.h>
 #include <Cocoa/Cocoa.h>
 #include <chrono>
 #include <cstdio>
@@ -5,6 +6,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
+
+// get mac data
 
 std::string execCommand(const char *cmd) {
   char buffer[128];
@@ -87,7 +90,6 @@ int getCPUUsage() {
     totalUsage += (user + system + nice) / total * 100.0f;
   }
 
-  // очистка попередніх даних
   if (prevInfoArray)
     vm_deallocate(mach_task_self(), (vm_address_t)prevInfoArray,
                   sizeof(integer_t) * prevInfoCount);
@@ -99,10 +101,385 @@ int getCPUUsage() {
   return (int)(totalUsage / cpuCount);
 }
 
+// vars
+
+CGFloat offsetFromTop = 25;
+CGFloat offsetFromLeft = 2;
+NSWindow *gOverlayWindow = nil;
+
+BOOL batteryEnabled = true;
+BOOL maxCapEnabled = true;
+BOOL tempEnabled = true;
+BOOL cpuLoadEnabled = true;
+BOOL gpuLoadEnabled = true;
+
+// save data
+
+void savePreferences() {
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  [defaults setInteger:(int)offsetFromLeft forKey:@"offsetFromLeft"];
+  [defaults setInteger:(int)offsetFromTop forKey:@"offsetFromTop"];
+  [defaults setBool:(BOOL)batteryEnabled forKey:@"batteryEnabled"];
+  [defaults setBool:(BOOL)maxCapEnabled forKey:@"maxCapEnabled"];
+  [defaults setBool:(BOOL)tempEnabled forKey:@"tempEnabled"];
+  [defaults setBool:(BOOL)cpuLoadEnabled forKey:@"cpuLoadEnabled"];
+  [defaults setBool:(BOOL)gpuLoadEnabled forKey:@"gpuLoadEnabled"];
+  [defaults synchronize];
+}
+
+void loadPreferences() {
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+  if ([defaults objectForKey:@"offsetFromLeft"])
+    offsetFromLeft = (CGFloat)[defaults integerForKey:@"offsetFromLeft"];
+
+  if ([defaults objectForKey:@"offsetFromTop"])
+    offsetFromTop = (CGFloat)[defaults integerForKey:@"offsetFromTop"];
+
+  if ([defaults objectForKey:@"batteryEnabled"])
+    batteryEnabled = (BOOL)[defaults boolForKey:@"batteryEnabled"];
+
+  if ([defaults objectForKey:@"maxCapEnabled"])
+    maxCapEnabled = (BOOL)[defaults boolForKey:@"maxCapEnabled"];
+
+  if ([defaults objectForKey:@"tempEnabled"])
+    tempEnabled = (BOOL)[defaults boolForKey:@"tempEnabled"];
+
+  if ([defaults objectForKey:@"cpuLoadEnabled"])
+    cpuLoadEnabled = (BOOL)[defaults boolForKey:@"cpuLoadEnabled"];
+
+  if ([defaults objectForKey:@"gpuLoadEnabled"])
+    gpuLoadEnabled = (BOOL)[defaults boolForKey:@"gpuLoadEnabled"];
+}
+
+// interface
+
+static NSTextField *makeLabel(NSString *text) {
+  NSTextField *label = [[NSTextField alloc] init];
+  label.stringValue = text;
+  label.bezeled = NO;
+  label.drawsBackground = NO;
+  label.editable = NO;
+  label.selectable = NO;
+  label.font = [NSFont systemFontOfSize:14];
+  label.alignment = NSTextAlignmentRight;
+  label.translatesAutoresizingMaskIntoConstraints = NO;
+  return label;
+}
+
+static NSButton *makeButton(NSString *title, SEL action, id target) {
+  NSButton *button = [[NSButton alloc] init];
+  button.title = title;
+  button.bezelStyle = NSBezelStyleRounded;
+  button.target = target;
+  button.action = action;
+  button.translatesAutoresizingMaskIntoConstraints = NO;
+  return button;
+}
+
+static NSButton *makeSwitch(NSString *title, id target, SEL action,
+                            BOOL state) {
+  NSButton *sw = [[NSButton alloc] init];
+  sw.title = title;
+  sw.buttonType = NSButtonTypeSwitch;
+  sw.state = state;
+  sw.target = target;
+  sw.action = action;
+  sw.translatesAutoresizingMaskIntoConstraints = NO;
+  return sw;
+}
+
+static NSTextField *makeTextField(NSString *initialValue, id target, SEL action,
+                                  NSInteger tag) {
+  NSTextField *field = [[NSTextField alloc] init];
+  field.stringValue = initialValue;
+  field.tag = tag;
+  field.target = target;
+  field.action = action;
+  field.translatesAutoresizingMaskIntoConstraints = NO;
+  return field;
+}
+
+void updateOverlayPosition() {
+  if (!gOverlayWindow)
+    return;
+
+  NSScreen *screen = [NSScreen mainScreen];
+  NSRect screenFrame = [screen frame];
+
+  CGFloat windowWidth = gOverlayWindow.frame.size.width;
+  CGFloat windowHeight = gOverlayWindow.frame.size.height;
+
+  NSRect newFrame = NSMakeRect(
+      offsetFromLeft, NSMaxY(screenFrame) - windowHeight - offsetFromTop,
+      windowWidth, windowHeight);
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [gOverlayWindow setFrame:newFrame display:YES animate:NO];
+    [gOverlayWindow displayIfNeeded];
+  });
+}
+
+@interface BackgroundView : NSView
+@end
+
+@implementation BackgroundView
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+}
+
+@end
+
+@interface PreferencesWindowController : NSWindowController
+@end
+
+@implementation PreferencesWindowController
+
+- (instancetype)init {
+  NSRect frame = NSMakeRect(0, 0, 350, 350);
+
+  NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:frame
+                styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
+                  backing:NSBackingStoreBuffered
+                    defer:NO];
+
+  window.title = @"Preferences";
+  window.releasedWhenClosed = NO;
+  window.titlebarAppearsTransparent = YES;
+
+  self = [super initWithWindow:window];
+  if (self) {
+    [self setupUI];
+  }
+  return self;
+}
+
+- (void)setupUI {
+  BackgroundView *content =
+      [[BackgroundView alloc] initWithFrame:self.window.contentView.bounds];
+  self.window.contentView = content;
+
+  NSTextField *title = makeLabel(@"Overlay Position:");
+  [content addSubview:title];
+  [NSLayoutConstraint activateConstraints:@[
+    [title.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+    [title.topAnchor constraintEqualToAnchor:content.topAnchor constant:20]
+  ]];
+
+  NSTextField *xLabel = makeLabel(@"Left:");
+  [content addSubview:xLabel];
+
+  NSTextField *xField =
+      makeTextField([NSString stringWithFormat:@"%d", (int)offsetFromLeft],
+                    self, @selector(resetPosition:), 1);
+  [content addSubview:xField];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [xLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:10],
+    [xField.topAnchor constraintEqualToAnchor:xLabel.topAnchor],
+    [xLabel.trailingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                          constant:-5],
+    [xField.leadingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                         constant:5],
+    [xField.widthAnchor constraintEqualToConstant:80]
+  ]];
+
+  NSTextField *yLabel = makeLabel(@"Top:");
+  [content addSubview:yLabel];
+
+  NSTextField *yField =
+      makeTextField([NSString stringWithFormat:@"%d", (int)offsetFromTop], self,
+                    @selector(resetPosition:), 2);
+  [content addSubview:yField];
+
+  [[NSNotificationCenter defaultCenter]
+      addObserver:self
+         selector:@selector(textFieldChanged:)
+             name:NSControlTextDidChangeNotification
+           object:xField];
+
+  [[NSNotificationCenter defaultCenter]
+      addObserver:self
+         selector:@selector(textFieldChanged:)
+             name:NSControlTextDidChangeNotification
+           object:yField];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [yLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:40],
+    [yField.topAnchor constraintEqualToAnchor:yLabel.topAnchor],
+    [yLabel.trailingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                          constant:-5],
+    [yField.leadingAnchor constraintEqualToAnchor:content.centerXAnchor
+                                         constant:5],
+    [yField.widthAnchor constraintEqualToConstant:80]
+  ]];
+
+  NSButton *resetButton = makeButton(@"Reset", @selector(resetPosition:), self);
+  [content addSubview:resetButton];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [resetButton.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                          constant:70],
+    [resetButton.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSTextField *dataTitle = makeLabel(@"Data that will display:");
+  [content addSubview:dataTitle];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [dataTitle.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                        constant:120],
+    [dataTitle.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *batteryCheckbox =
+      makeSwitch(@"Battery charge", self, @selector(batteryCheckboxToggled:),
+                 batteryEnabled);
+  [content addSubview:batteryCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [batteryCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:150],
+    [batteryCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *maxCapCheckbox =
+      makeSwitch(@"Max battery capacity", self,
+                 @selector(maxCapCheckboxToggled:), maxCapEnabled);
+  [content addSubview:maxCapCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [maxCapCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                             constant:180],
+    [maxCapCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *tempCheckbox =
+      makeSwitch(@"Battery temperature", self, @selector(tempCheckboxToggled:),
+                 tempEnabled);
+  [content addSubview:tempCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [tempCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                           constant:210],
+    [tempCheckbox.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *cpuLoadCheckbox = makeSwitch(
+      @"CPU Load", self, @selector(cpuLoadCheckboxToggled:), cpuLoadEnabled);
+  [content addSubview:cpuLoadCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [cpuLoadCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:240],
+    [cpuLoadCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+
+  NSButton *gpuLoadCheckbox = makeSwitch(
+      @"GPU Load", self, @selector(gpuLoadCheckboxToggled:), gpuLoadEnabled);
+  [content addSubview:gpuLoadCheckbox];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [gpuLoadCheckbox.topAnchor constraintEqualToAnchor:title.bottomAnchor
+                                              constant:270],
+    [gpuLoadCheckbox.centerXAnchor
+        constraintEqualToAnchor:content.centerXAnchor],
+  ]];
+}
+
+- (void)resetPosition:(id)sender {
+  NSTextField *xField = [self.window.contentView viewWithTag:1];
+  NSTextField *yField = [self.window.contentView viewWithTag:2];
+
+  [xField setStringValue:@"2"];
+  [yField setStringValue:@"25"];
+
+  [self updateCoords:xField];
+  [self updateCoords:yField];
+}
+
+- (void)textFieldChanged:(NSNotification *)note {
+  NSTextField *field = note.object;
+
+  if (field.tag == 1) {
+    offsetFromLeft = field.intValue;
+  }
+  else if (field.tag == 2) {
+    offsetFromTop = field.intValue;
+  }
+
+  updateOverlayPosition();
+  savePreferences();
+}
+
+- (void)updateCoords:(NSTextField *)sender {
+  if (sender.tag == 1) {
+    offsetFromLeft = sender.intValue;
+  }
+  else if (sender.tag == 2) {
+    offsetFromTop = sender.intValue;
+  }
+
+  updateOverlayPosition();
+  savePreferences();
+}
+
+- (void)batteryCheckboxToggled:(NSButton *)sender {
+  batteryEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
+}
+
+- (void)maxCapCheckboxToggled:(NSButton *)sender {
+  maxCapEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
+}
+
+- (void)tempCheckboxToggled:(NSButton *)sender {
+  tempEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
+}
+
+- (void)cpuLoadCheckboxToggled:(NSButton *)sender {
+  cpuLoadEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
+}
+
+- (void)gpuLoadCheckboxToggled:(NSButton *)sender {
+  gpuLoadEnabled = (sender.state == NSControlStateValueOn);
+  savePreferences();
+}
+
+- (void)keyDown:(NSEvent *)event {
+  unsigned short code = [event keyCode];
+  if ((event.modifierFlags & NSEventModifierFlagCommand)) {
+    if (code == 13) {
+      [self.window performClose:nil];
+      return;
+    }
+    else if (code == 12) {
+      [NSApp terminate:nil];
+      return;
+    }
+  }
+
+  [super keyDown:event];
+}
+
+@end
+
 @interface StatusApp : NSObject
 @property(strong) NSStatusItem *statusItem;
+@property(strong) PreferencesWindowController *prefsWC;
 - (void)setupStatusItem;
-- (void)quitApp:(id)sender;
 @end
 
 @implementation StatusApp
@@ -115,8 +492,6 @@ int getCPUUsage() {
       initWithContentsOfFile:[[NSBundle mainBundle]
                                  pathForResource:@"DataMonitorIcon"
                                           ofType:@"png"]];
-  if (!icon)
-    NSLog(@"Icon not found!");
   [icon setSize:NSMakeSize(23, 23)];
   self.statusItem.button.image = icon;
 
@@ -124,14 +499,55 @@ int getCPUUsage() {
   NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit"
                                                     action:@selector(quitApp:)
                                              keyEquivalent:@""];
+
+  // NSMenuItem *textItem = [[NSMenuItem alloc] initWithTitle:@"Hello world"
+  //                                                   action:nil
+  //                                            keyEquivalent:@""];
+  // [menu insertItem:textItem atIndex:0];
+
+  NSMenuItem *preferences =
+      [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                 action:@selector(preferences:)
+                          keyEquivalent:@","];
+  preferences.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  preferences.target = self;
+  [menu addItem:preferences];
+
   quitItem.target = self;
   [menu addItem:quitItem];
 
   self.statusItem.menu = menu;
 }
 
+- (void)setupMenu {
+  NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+  NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+  [mainMenu addItem:appMenuItem];
+  [NSApp setMainMenu:mainMenu];
+
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"App"];
+  NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit"
+                                                    action:@selector(quitApp:)
+                                             keyEquivalent:@"q"];
+  quitItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  quitItem.target = self;
+  [appMenu addItem:quitItem];
+
+  [appMenuItem setSubmenu:appMenu];
+}
+
 - (void)quitApp:(id)sender {
   [NSApp terminate:nil];
+}
+
+- (void)preferences:(id)sender {
+  if (!self.prefsWC) {
+    self.prefsWC = [[PreferencesWindowController alloc] init];
+  }
+
+  [self.prefsWC showWindow:nil];
+  [self.prefsWC.window center];
+  [NSApp activateIgnoringOtherApps:YES];
 }
 
 @end
@@ -140,15 +556,16 @@ int main(int argc, const char *argv[]) {
   @autoreleasepool {
     NSApplication *app = [NSApplication sharedApplication];
 
+    loadPreferences();
+
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
     NSRect screenF = [[NSScreen mainScreen] frame];
     CGFloat windowWidth = 100;
     CGFloat windowHeight = 120;
-    CGFloat offsetFromTop = 820;
-    CGFloat offsetFromLeft = 1345;
 
-    NSRect frame = NSMakeRect(offsetFromLeft, NSMaxY(screenF) - windowHeight,
+    NSRect frame = NSMakeRect(NSMaxX(screenF) - windowWidth - offsetFromLeft,
+                              NSMaxY(screenF) - windowHeight - offsetFromTop,
                               windowWidth, windowHeight);
 
     NSWindow *window =
@@ -156,6 +573,9 @@ int main(int argc, const char *argv[]) {
                                     styleMask:NSWindowStyleMaskBorderless
                                       backing:NSBackingStoreBuffered
                                         defer:NO];
+
+    gOverlayWindow = window;
+    updateOverlayPosition();
 
     [window setLevel:NSStatusWindowLevel];
     [window setOpaque:NO];
@@ -176,13 +596,13 @@ int main(int argc, const char *argv[]) {
 
     NSScreen *screen = [NSScreen mainScreen];
     NSRect screenFrame = [screen frame];
-    NSPoint newOrigin =
-        NSMakePoint(NSMinX(frame), NSMinY(frame) - offsetFromTop);
+    NSPoint newOrigin = NSMakePoint(NSMinX(frame), offsetFromTop);
     [window setFrameOrigin:newOrigin];
 
     [window makeKeyAndOrderFront:nil];
 
     StatusApp *manager = [[StatusApp alloc] init];
+    [manager setupMenu];
     [manager setupStatusItem];
 
     std::thread([label]() {
@@ -194,24 +614,27 @@ int main(int argc, const char *argv[]) {
 
       while (true) {
         std::stringstream ss;
-        if (i % 3 == 0) {
+        if (i == 3) {
+          battery = getBatteryPercent();
+          maxCap = getBatteryMaxCapacity();
+          temp = getBatteryTemp();
+          i = 0;
           dispatch_async(
               dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                 gpuUsage = getGPUUsage();
               });
         }
-        if (i == 15) {
-          battery = getBatteryPercent();
-          maxCap = getBatteryMaxCapacity();
-          temp = getBatteryTemp();
-          i = 0;
-        }
         i++;
-        ss << "Battery: " << battery << std::endl;
-        ss << "MaxCap: " << maxCap << std::endl;
-        ss << "Temp: " << temp << "°C\n";
-        ss << "CPU Load: " << getCPUUsage() << "%" << std::endl;
-        ss << "GPU Load: " << gpuUsage;
+        if (batteryEnabled)
+          ss << "Battery: " << battery << std::endl;
+        if (maxCapEnabled)
+          ss << "MaxCap: " << maxCap << std::endl;
+        if (tempEnabled)
+          ss << "Temp: " << temp << "°C\n";
+        if (cpuLoadEnabled)
+          ss << "CPU Load: " << getCPUUsage() << "%" << std::endl;
+        if (gpuLoadEnabled)
+          ss << "GPU Load: " << gpuUsage;
 
         NSString *nsStr = [NSString stringWithUTF8String:ss.str().c_str()];
         dispatch_async(dispatch_get_main_queue(), ^{
