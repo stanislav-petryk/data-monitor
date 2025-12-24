@@ -5,6 +5,10 @@
 **Data Monitor** is a lightweight macOS overlay application for real-time monitoring of essential system metrics.
 Designed for personal use with minimal overhead and an always-visible, non-intrusive UI.
 
+## 🎥 Demo
+
+![Data monitor demo](https://github.com/user-attachments/assets/37c042f8-9c8c-4638-82f4-650478af406f)
+
 ## ✨ Features
 
 - Always-on-top overlay window
