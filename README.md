@@ -7,7 +7,7 @@ Designed for personal use with minimal overhead and an always-visible, non-intru
 
 ## 🎥 Demo
 
-![Data monitor demo](https://github.com/user-attachments/assets/37c042f8-9c8c-4638-82f4-650478af406f)
+https://github.com/user-attachments/assets/37c042f8-9c8c-4638-82f4-650478af406f
 
 ## ✨ Features
 
