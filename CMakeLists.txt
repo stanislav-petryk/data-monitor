@@ -14,7 +14,11 @@ target_link_libraries(DataMonitor
 
 set_target_properties(DataMonitor PROPERTIES
     MACOSX_BUNDLE TRUE
-    MACOSX_BUNDLE_ICON_FILE "DataMonitorIcon"
+    MACOSX_BUNDLE_INFO_PLIST
+        ${CMAKE_SOURCE_DIR}/resources/Info.plist
+    MACOSX_BUNDLE_ICON_FILE
+        DataMonitorIcon
+
 )
 
 foreach(resource ${RESOURCE_FILES})
